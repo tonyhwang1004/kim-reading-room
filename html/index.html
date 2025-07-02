@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>김엄마독서실 - 통합 관리 시스템</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Malgun Gothic', sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .main-container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 20px;
+            padding: 30px;
+            box-shadow: 0 15px 35px rgba(0, 0, 0, 0.1);
+        }
+        
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+            padding-bottom: 20px;
+            border-bottom: 3px solid #667eea;
+        }
+        
+        .header h1 {
+            color: #333;
+            font-size: 2.2em;
+            margin-bottom: 10px;
+        }
+        
+        .directory-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 25px;
+            margin-bottom: 30px;
+        }
+        
+        .directory-card {
+            background: white;
+            border-radius: 15px;
+            padding: 25px;
+            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.1);
+            transition: all 0.3s ease;
+            cursor: pointer;
+            border-left: 5px solid #667eea;
+            text-align: center;
+        }
+        
+        .directory-card:hover {
+            transform: translateY(-10px);
+            box-shadow: 0 15px 40px rgba(0, 0, 0, 0.15);
+        }
+        
+        .card-icon {
+            font-size: 3em;
+            margin-bottom: 15px;
+        }
+        
+        .card-title {
+            font-size: 1.4em;
+            font-weight: bold;
+            margin-bottom: 10px;
+            color: #333;
+        }
+        
+        .card-description {
+            color: #666;
+            line-height: 1.6;
+        }
+        
+        .floor-8 { border-left-color: #28a745; }
+        .floor-7 { border-left-color: #17a2b8; }
+        .reports { border-left-color: #ffc107; }
+        .fee-mgmt { border-left-color: #6f42c1; }
+        .task-lists { border-left-color: #dc3545; }
+    </style>
+</head>
+<body>
+    <div class="main-container">
+        <div class="header">
+            <h1>📚 김엄마독서실</h1>
+            <p>통합 관리 시스템 & 리포트 센터</p>
+        </div>
+        
+        <div class="directory-grid">
+            <!-- 8층 관리 -->
+            <div class="directory-card floor-8" onclick="location.href='management_lists.html'">
+                <div class="card-icon">🏢</div>
+                <div class="card-title">8층 학생 관리</div>
+                <div class="card-description">
+                    8층 전체 학생 명단 및 좌석 관리<br>
+                    칸막이, 지정석, 자유석 통합 관리
+                </div>
+            </div>
+            
+            <!-- 7층 관리 -->
+            <div class="directory-card floor-7">
+                <div class="card-icon">🏬</div>
+                <div class="card-title">7층 학생 관리</div>
+                <div class="card-description">
+                    7층 전체 학생 명단 및 시설 관리<br>
+                    러셀형, 대기실 등 특별 공간 포함
+                </div>
+            </div>
+            
+            <!-- 통합 리포트 -->
+            <div class="directory-card reports">
+                <div class="card-icon">📊</div>
+                <div class="card-title">통합 리포트</div>
+                <div class="card-description">
+                    주별, 월별 자동 리포트 생성<br>
+                    7층+8층 통합 현황 분석
+                </div>
+            </div>
+            
+            <!-- 회비 관리 -->
+            <div class="directory-card fee-mgmt">
+                <div class="card-icon">💰</div>
+                <div class="card-title">회비 관리</div>
+                <div class="card-description">
+                    6월/7월 회비 현황 관리<br>
+                    납부 현황 및 미납자 추적
+                </div>
+            </div>
+            
+            <!-- 업무 관리 명단 -->
+            <div class="directory-card task-lists" onclick="location.href='management_lists.html'">
+                <div class="card-icon">📋</div>
+                <div class="card-title">업무 관리 명단</div>
+                <div class="card-description">
+                    플래너 미작성, 회비 미납<br>
+                    우선순위별 관리 대상 학생
+                </div>
+            </div>
+        </div>
+    </div>
+</body>
+</html>
