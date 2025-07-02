@@ -191,7 +191,6 @@
         .btn-call { background: #28a745; color: white; }
         .btn-message { background: #17a2b8; color: white; }
         .btn-note { background: #ffc107; color: #333; }
-        .btn-detail { background: #6f42c1; color: white; }
         
         .btn:hover {
             transform: translateY(-1px);
@@ -216,6 +215,16 @@
             padding: 50px;
             color: #666;
             font-size: 1.2em;
+        }
+        
+        .debug-info {
+            background: #f8f9fa;
+            padding: 15px;
+            margin: 20px 0;
+            border-radius: 10px;
+            font-family: monospace;
+            font-size: 0.9em;
+            color: #666;
         }
         
         @media (max-width: 768px) {
@@ -267,15 +276,23 @@
             </div>
         </div>
         
+        <!-- 디버그 정보 -->
+        <div class="debug-info" id="debug-info" style="display: none;">
+            <strong>📊 디버그 정보:</strong><br>
+            <span id="debug-text">로딩중...</span>
+        </div>
+        
         <!-- 필터 및 검색 -->
         <div class="filters">
             <input type="text" class="search-box" placeholder="🔍 학생 이름, 학교, 좌석 번호로 검색..." id="search-input">
             <button class="filter-btn active" onclick="filterStudents('all')">전체</button>
             <button class="filter-btn" onclick="filterStudents('칸막이')">칸막이</button>
             <button class="filter-btn" onclick="filterStudents('지정석')">지정석</button>
+            <button class="filter-btn" onclick="filterStudents('자유석')">자유석</button>
             <button class="filter-btn" onclick="filterStudents('planner-missing')">플래너 미작성</button>
             <button class="filter-btn" onclick="filterStudents('new')">신규 학생</button>
             <button class="filter-btn" onclick="refreshData()">🔄 새로고침</button>
+            <button class="filter-btn" onclick="toggleDebug()">🔍 디버그</button>
         </div>
         
         <!-- 학생 목록 -->
@@ -288,8 +305,10 @@
         class Floor8Manager {
             constructor() {
                 this.allStudents = [];
+                this.rawData = [];
                 this.currentFilter = 'all';
                 this.spreadsheetId = '1OVEffnCRTZ1A-cVCb4CYiYe3MicyI9TSkJNsau4mGVo';
+                this.debugMode = false;
                 this.init();
             }
             
@@ -306,65 +325,143 @@
             async loadStudentData() {
                 try {
                     document.getElementById('update-time').textContent = '업데이트 중...';
+                    this.log('📡 Google Sheets 데이터 로드 시작...');
                     
                     // Google Sheets CSV 방식으로 데이터 로드
                     const csvUrl = `https://docs.google.com/spreadsheets/d/${this.spreadsheetId}/export?format=csv&gid=0`;
                     
-                    const response = await fetch(csvUrl, { mode: 'cors' });
-                    if (!response.ok) throw new Error('데이터 로드 실패');
+                    const response = await fetch(csvUrl, { 
+                        mode: 'cors',
+                        headers: {
+                            'Accept': 'text/csv'
+                        }
+                    });
+                    
+                    if (!response.ok) {
+                        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                    }
                     
                     const csvText = await response.text();
-                    const data = this.parseCSVToStudents(csvText);
+                    this.log(`📄 CSV 데이터 크기: ${csvText.length} bytes`);
                     
-                    // 8층 학생 필터링 (좌석 1-60번)
-                    this.allStudents = data.filter(student => {
-                        const seat = parseInt(student.seat);
-                        return seat >= 1 && seat <= 60 && student.name;
-                    });
+                    // CSV 파싱
+                    const parsedData = this.parseCSVCorrectly(csvText);
+                    this.log(`📊 파싱된 학생 수: ${parsedData.length}명`);
+                    
+                    // 데이터 필터링 및 처리
+                    this.rawData = parsedData;
+                    this.filterFor8thFloor();
                     
                     this.updateStatistics();
                     this.renderStudents();
                     
                     document.getElementById('update-time').textContent = new Date().toLocaleTimeString();
+                    this.log('✅ 데이터 로드 완료!');
                     
                 } catch (error) {
                     console.error('Google Sheets 연동 실패:', error);
+                    this.log(`❌ 연동 실패: ${error.message}`);
                     this.loadSampleData();
                 }
             }
             
-            parseCSVToStudents(csvText) {
-                const lines = csvText.split('\n').filter(line => line.trim());
+            parseCSVCorrectly(csvText) {
+                this.log('🔧 CSV 파싱 시작...');
+                
+                const lines = csvText.split('\n');
                 const students = [];
                 
-                // 첫 번째 줄은 헤더이므로 건너뛰기
+                // 첫 번째 줄은 헤더 - 건너뛰기
+                this.log(`📋 총 ${lines.length}줄 처리 중...`);
+                
                 for (let i = 1; i < lines.length; i++) {
-                    const values = lines[i].split(',').map(v => v.trim().replace(/"/g, ''));
+                    const line = lines[i].trim();
+                    if (!line) continue; // 빈 줄 건너뛰기
                     
-                    if (values.length >= 10 && values[0]) { // 이름이 있고 충분한 컬럼이 있는 경우
+                    // CSV 파싱 (큰따옴표 처리 포함)
+                    const cells = this.parseCSVLine(line);
+                    
+                    // 최소한의 데이터가 있는지 확인 (이름과 좌석)
+                    if (cells.length >= 5 && cells[0] && cells[4]) {
                         const student = {
-                            name: values[0] || '',
-                            phone: values[1] || '',
-                            parentPhone: values[2] || '',
-                            seatType: values[3] || '',
-                            seat: values[4] || '',
-                            joinDate: values[5] || '',
-                            portalRegister: values[6] || '',
-                            school: values[7] || '',
-                            lockerNumber: values[8] || '',
-                            grade: values[9] || '',
-                            planner: values[10] || '',
-                            plannerEdu: values[11] || '',
-                            schedule: values[12] || '',
-                            scheduleApproval: values[13] || '',
-                            changeCount: values[14] || '',
-                            mileage: values[15] || ''
+                            // 정확한 컬럼 매핑 (실제 Google Sheets 구조 기반)
+                            name: cells[0]?.trim() || '',                    // A열: 학생명
+                            phone: cells[1]?.trim() || '',                   // B열: 학생 전화번호
+                            parentPhone: cells[2]?.trim() || '',             // C열: 학부모 전화번호
+                            seatType: cells[3]?.trim() || '',                // D열: 좌석 유형
+                            seat: cells[4]?.trim() || '',                    // E열: 자리/핸드폰자리
+                            joinDate: cells[5]?.trim() || '',                // F열: 첫 등원
+                            portalRegister: cells[6]?.trim() || '',          // G열: 포탈 등록 여부
+                            school: cells[7]?.trim() || '',                  // H열: 고등학교
+                            lockerNumber: cells[8]?.trim() || '',            // I열: 사물함 번호
+                            grade: cells[9]?.trim() || '',                   // J열: 학년
+                            planner: cells[10]?.trim() || '',                // K열: 플래너 작성
+                            plannerEdu: cells[11]?.trim() || '',             // L열: 플래너 교육
+                            schedule: cells[12]?.trim() || '',               // M열: 정기일정 제출
+                            scheduleApproval: cells[13]?.trim() || '',       // N열: 정기일정 승인
+                            changeCount: cells[14]?.trim() || '',            // O열: 변경 횟수
+                            mileage: cells[15]?.trim() || ''                 // P열: 상점 마일리지
                         };
+                        
                         students.push(student);
                     }
                 }
                 
+                this.log(`✅ 파싱 완료: ${students.length}명의 학생 데이터`);
                 return students;
+            }
+            
+            parseCSVLine(line) {
+                const cells = [];
+                let current = '';
+                let inQuotes = false;
+                
+                for (let i = 0; i < line.length; i++) {
+                    const char = line[i];
+                    const nextChar = line[i + 1];
+                    
+                    if (char === '"') {
+                        if (inQuotes && nextChar === '"') {
+                            current += '"';
+                            i++; // 다음 따옴표 건너뛰기
+                        } else {
+                            inQuotes = !inQuotes;
+                        }
+                    } else if (char === ',' && !inQuotes) {
+                        cells.push(current);
+                        current = '';
+                    } else {
+                        current += char;
+                    }
+                }
+                
+                // 마지막 셀 추가
+                cells.push(current);
+                
+                return cells;
+            }
+            
+            filterFor8thFloor() {
+                this.log('🏢 8층 학생 필터링 시작...');
+                
+                // 8층 좌석 범위: 1-60번 (칸막이, 지정석), 101-140번 (자유석)
+                this.allStudents = this.rawData.filter(student => {
+                    const seatNum = parseInt(student.seat);
+                    const is8thFloor = (seatNum >= 1 && seatNum <= 60) || (seatNum >= 101 && seatNum <= 140);
+                    
+                    return is8thFloor && student.name; // 이름이 있고 8층 좌석인 경우
+                });
+                
+                this.log(`🎯 8층 학생 ${this.allStudents.length}명 필터링 완료`);
+                
+                // 디버그: 좌석 분포 확인
+                const seatDistribution = {};
+                this.allStudents.forEach(s => {
+                    const type = s.seatType || '미분류';
+                    seatDistribution[type] = (seatDistribution[type] || 0) + 1;
+                });
+                
+                this.log(`📊 좌석 분포: ${JSON.stringify(seatDistribution)}`);
             }
             
             updateStatistics() {
@@ -377,20 +474,32 @@
                 thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
                 const newStudents = this.allStudents.filter(s => {
                     if (!s.joinDate) return false;
-                    const joinDate = new Date(s.joinDate.replace(/\//g, '-'));
-                    return joinDate >= thirtyDaysAgo;
+                    try {
+                        // 날짜 형식 변환: YYYY/MM/DD
+                        const dateStr = s.joinDate.replace(/\//g, '-');
+                        const joinDate = new Date(dateStr);
+                        return joinDate >= thirtyDaysAgo && !isNaN(joinDate.getTime());
+                    } catch (e) {
+                        return false;
+                    }
                 }).length;
+                
+                // 8층 총 좌석 수 (1-60: 60석 + 101-140: 40석 = 100석)
+                const totalSeats = 100;
+                const usageRate = Math.round((total / totalSeats) * 100);
                 
                 document.getElementById('total-students').textContent = total;
                 document.getElementById('planner-completed').textContent = plannerCompleted;
                 document.getElementById('schedule-submitted').textContent = scheduleSubmitted;
-                document.getElementById('seat-usage').textContent = Math.round((total / 60) * 100) + '%';
+                document.getElementById('seat-usage').textContent = usageRate + '%';
                 document.getElementById('new-students').textContent = newStudents;
+                
+                this.log(`📈 통계 업데이트: 총 ${total}명, 플래너 ${plannerCompleted}명, 일정 ${scheduleSubmitted}명`);
             }
             
             renderStudents() {
                 const container = document.getElementById('students-container');
-                let filteredStudents = this.allStudents;
+                let filteredStudents = [...this.allStudents];
                 
                 // 필터 적용
                 if (this.currentFilter !== 'all') {
@@ -407,12 +516,20 @@
                     );
                 }
                 
+                // 좌석 번호순 정렬
+                filteredStudents.sort((a, b) => {
+                    const seatA = parseInt(a.seat) || 0;
+                    const seatB = parseInt(b.seat) || 0;
+                    return seatA - seatB;
+                });
+                
                 if (filteredStudents.length === 0) {
                     container.innerHTML = '<div class="loading">검색 결과가 없습니다.</div>';
                     return;
                 }
                 
                 container.innerHTML = filteredStudents.map(student => this.createStudentCard(student)).join('');
+                this.log(`🎨 ${filteredStudents.length}명 학생 카드 렌더링 완료`);
             }
             
             applyFilter(students) {
@@ -421,6 +538,8 @@
                         return students.filter(s => s.seatType === '칸막이');
                     case '지정석':
                         return students.filter(s => s.seatType && s.seatType.includes('지정석'));
+                    case '자유석':
+                        return students.filter(s => s.seatType === '자유석');
                     case 'planner-missing':
                         return students.filter(s => s.planner === 'x');
                     case 'new':
@@ -428,8 +547,13 @@
                         weekAgo.setDate(weekAgo.getDate() - 7);
                         return students.filter(s => {
                             if (!s.joinDate) return false;
-                            const joinDate = new Date(s.joinDate.replace(/\//g, '-'));
-                            return joinDate >= weekAgo;
+                            try {
+                                const dateStr = s.joinDate.replace(/\//g, '-');
+                                const joinDate = new Date(dateStr);
+                                return joinDate >= weekAgo && !isNaN(joinDate.getTime());
+                            } catch (e) {
+                                return false;
+                            }
                         });
                     default:
                         return students;
@@ -452,7 +576,7 @@
                         <div class="student-info">📞 ${student.phone}</div>
                         <div class="student-info">👨‍👩‍👧‍👦 ${student.parentPhone}</div>
                         <div class="student-info">🪑 ${student.seatType}</div>
-                        ${student.lockerNumber ? `<div class="student-info">🔒 사물함 ${student.lockerNumber}번</div>` : ''}
+                        ${student.lockerNumber && student.lockerNumber !== '-' ? `<div class="student-info">🔒 사물함 ${student.lockerNumber}번</div>` : ''}
                         
                         <div class="status-badges">
                             <span class="badge ${plannerStatus ? 'badge-planner-ok' : 'badge-planner-no'}">
@@ -461,7 +585,7 @@
                             <span class="badge ${scheduleStatus ? 'badge-schedule-ok' : 'badge-schedule-no'}">
                                 일정 ${scheduleStatus ? '제출' : '미제출'}
                             </span>
-                            ${student.mileage && student.mileage !== '-' ? `<span class="badge" style="background: #fff3cd; color: #856404;">마일리지 ${student.mileage}</span>` : ''}
+                            ${student.mileage && student.mileage !== '-' && student.mileage !== '' ? `<span class="badge" style="background: #fff3cd; color: #856404;">마일리지 ${student.mileage}</span>` : ''}
                         </div>
                         
                         <div class="action-buttons">
@@ -481,37 +605,50 @@
                 });
             }
             
-            loadSampleData() {
-                console.log('📋 Google Sheets 연동 실패 - 샘플 데이터 사용');
+            log(message) {
+                console.log(message);
+                if (this.debugMode) {
+                    const debugElement = document.getElementById('debug-text');
+                    if (debugElement) {
+                        const timestamp = new Date().toLocaleTimeString();
+                        debugElement.innerHTML += `<br>${timestamp}: ${message}`;
+                    }
+                }
+            }
+            
+            toggleDebug() {
+                this.debugMode = !this.debugMode;
+                const debugElement = document.getElementById('debug-info');
+                debugElement.style.display = this.debugMode ? 'block' : 'none';
                 
-                // 실제 Google Sheets 데이터 기반 샘플
+                if (this.debugMode) {
+                    document.getElementById('debug-text').innerHTML = '디버그 모드 활성화';
+                }
+            }
+            
+            loadSampleData() {
+                this.log('📋 샘플 데이터 로드 (Google Sheets 연동 실패)');
+                
+                // 실제 스프레드시트 구조 기반 샘플 데이터
                 this.allStudents = [
-                    { name: '이가영', seat: '1', seatType: '칸막이', school: '해송고', grade: '3', phone: '010-4061-8456', parentPhone: '010-6231-8457', joinDate: '2024/07/22', planner: 'o', schedule: 'o', mileage: '30', lockerNumber: '' },
-                    { name: '김서윤', seat: '2', seatType: '칸막이', school: '해송고', grade: '3', phone: '010-3027-1958', parentPhone: '010-3111-1958', joinDate: '2025/04/21', planner: 'x', schedule: 'o', mileage: '1', lockerNumber: '' },
-                    { name: '이지수', seat: '3', seatType: '칸막이', school: '해송고', grade: '3', phone: '010-3057-0502', parentPhone: '010-6279-1012', joinDate: '2024/11/20', planner: 'o', schedule: 'o', mileage: '67', lockerNumber: '' },
-                    { name: '정기주', seat: '4', seatType: '칸막이', school: '송도고', grade: '3', phone: '010-5922-3059', parentPhone: '010-9359-3007', joinDate: '2025/05/01', planner: 'o', schedule: 'o', mileage: '-', lockerNumber: '' },
-                    { name: '이동윤', seat: '5', seatType: '칸막이', school: '연송고', grade: '3', phone: '010-9484-6034', parentPhone: '010-2725-6034', joinDate: '2025/02/05', planner: 'o', schedule: 'o', mileage: '24', lockerNumber: '' },
-                    { name: '허준서', seat: '6', seatType: '칸막이', school: '연송고', grade: '3', phone: '010-3671-5294', parentPhone: '010-9166-5294', joinDate: '2025/04/07', planner: 'o', schedule: 'o', mileage: '3', lockerNumber: '' },
-                    { name: '최민서', seat: '7', seatType: '칸막이', school: '포스코고', grade: '3', phone: '010-2678-9226', parentPhone: '010-2675-9226', joinDate: '2024/11/15', planner: 'o', schedule: 'o', mileage: '97', lockerNumber: '' },
-                    { name: '신지윤', seat: '8', seatType: '칸막이', school: '포스코고', grade: '3', phone: '010-6325-2797', parentPhone: '010-6275-9131', joinDate: '2024/12/01', planner: 'o', schedule: 'o', mileage: '437', lockerNumber: '' },
-                    { name: '김여울', seat: '9', seatType: '칸막이', school: '인천여고', grade: '2', phone: '010-2041-7056', parentPhone: '010-2323-7055', joinDate: '2025/01/30', planner: 'o', schedule: 'o', mileage: '76', lockerNumber: '' },
-                    { name: '한예원', seat: '10', seatType: '칸막이', school: '인천외고', grade: '3', phone: '010-9276-4282', parentPhone: '010-9755-4282', joinDate: '2025/05/09', planner: 'x', schedule: 'o', mileage: '', lockerNumber: '' },
-                    { name: '정서현', seat: '11', seatType: '칸막이', school: 'N수', grade: 'N', phone: '010-6329-7929', parentPhone: '010-4717-8350', joinDate: '2025/06/04', planner: 'x', schedule: 'o', mileage: '', lockerNumber: '' },
-                    { name: '박승채', seat: '12', seatType: '칸막이', school: '고잔고', grade: '3', phone: '010-4138-9179', parentPhone: '010-6259-8888', joinDate: '2025/05/18', planner: 'x', schedule: 'o', mileage: '26', lockerNumber: '' },
-                    { name: '황연아', seat: '13', seatType: '칸막이', school: '박문여고', grade: '2', phone: '010-5054-1940', parentPhone: '010-5287-1940', joinDate: '2024/11/14', planner: 'x', schedule: 'o', mileage: '', lockerNumber: '' },
-                    { name: '김민성3', seat: '14', seatType: '칸막이', school: '연송고', grade: '3', phone: '010-9321-6476', parentPhone: '010-9448-6476', joinDate: '2024/12/15', planner: 'o', schedule: 'o', mileage: '120', lockerNumber: '' },
-                    { name: '구현', seat: '15', seatType: '칸막이', school: '포스코고', grade: '2', phone: '010-2568-1852', parentPhone: '010-7523-1852', joinDate: '2024/09/21', planner: 'o', schedule: 'x', mileage: '', lockerNumber: '' }
+                    { name: '이가영', seat: '1', seatType: '칸막이', school: '해송고', grade: '3', phone: '010-4061-8456', parentPhone: '010-6231-8457', joinDate: '2024/07/22', planner: 'o', schedule: 'o', mileage: '30' },
+                    { name: '김서윤', seat: '2', seatType: '칸막이', school: '해송고', grade: '3', phone: '010-3027-1958', parentPhone: '010-3111-1958', joinDate: '2025/04/21', planner: 'x', schedule: 'o', mileage: '1' },
+                    { name: '이지수', seat: '3', seatType: '칸막이', school: '해송고', grade: '3', phone: '010-3057-0502', parentPhone: '010-6279-1012', joinDate: '2024/11/20', planner: 'o', schedule: 'o', mileage: '67' },
+                    { name: '정기주', seat: '4', seatType: '칸막이', school: '송도고', grade: '3', phone: '010-5922-3059', parentPhone: '010-9359-3007', joinDate: '2025/05/01', planner: 'o', schedule: 'o', mileage: '' },
+                    { name: '한예원', seat: '10', seatType: '칸막이', school: '인천외고', grade: '3', phone: '010-9276-4282', parentPhone: '010-9755-4282', joinDate: '2025/05/09', planner: 'x', schedule: 'o', mileage: '' },
+                    { name: '정서현', seat: '11', seatType: '칸막이', school: 'N수', grade: 'N', phone: '010-6329-7929', parentPhone: '010-4717-8350', joinDate: '2025/06/04', planner: 'x', schedule: 'o', mileage: '' },
+                    { name: '문하민', seat: '101', seatType: '자유석', school: '포스코고', grade: '2', phone: '010-7116-8120', parentPhone: '010-2716-8120', joinDate: '2025/06/29', planner: 'x', schedule: 'o', mileage: '' },
+                    { name: '문채현', seat: '102', seatType: '자유석', school: '연수여고', grade: '3', phone: '010-5686-6649', parentPhone: '010-3409-7535', joinDate: '2025/06/13', planner: 'x', schedule: 'o', mileage: '' }
                 ];
                 
                 this.updateStatistics();
                 this.renderStudents();
-                document.getElementById('update-time').textContent = '샘플 데이터 (Google Sheets 연동 실패)';
+                document.getElementById('update-time').textContent = '샘플 데이터 (연동 실패)';
             }
         }
         
         // 전역 함수들
         function filterStudents(filterType) {
-            // 필터 버튼 활성화 상태 변경
             document.querySelectorAll('.filter-btn').forEach(btn => btn.classList.remove('active'));
             event.target.classList.add('active');
             
@@ -521,6 +658,10 @@
         
         function refreshData() {
             window.floor8Manager.loadStudentData();
+        }
+        
+        function toggleDebug() {
+            window.floor8Manager.toggleDebug();
         }
         
         function makeCall(phoneNumber) {
