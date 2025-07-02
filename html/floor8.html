@@ -314,14 +314,13 @@
                     if (!response.ok) throw new Error('데이터 로드 실패');
                     
                     const csvText = await response.text();
-                    const data = this.parseCSV(csvText);
+                    const data = this.parseCSVToStudents(csvText);
                     
-                   // 8층 학생만 필터링 (좌석 번호 1-60)
-this.allStudents = data.filter(student => {
-    const seatNumber = student[Object.keys(student)[3]]; // 4번째 컬럼 (자리번호)
-    const seat = parseInt(seatNumber) || 0;
-    return seat >= 1 && seat <= 60 && student[Object.keys(student)[0]]; // 이름이 있는 경우만
-});
+                    // 8층 학생 필터링 (좌석 1-60번)
+                    this.allStudents = data.filter(student => {
+                        const seat = parseInt(student.seat);
+                        return seat >= 1 && seat <= 60 && student.name;
+                    });
                     
                     this.updateStatistics();
                     this.renderStudents();
@@ -329,42 +328,56 @@ this.allStudents = data.filter(student => {
                     document.getElementById('update-time').textContent = new Date().toLocaleTimeString();
                     
                 } catch (error) {
-                    console.error('데이터 로드 오류:', error);
+                    console.error('Google Sheets 연동 실패:', error);
                     this.loadSampleData();
                 }
             }
             
-            parseCSV(csvText) {
-                const lines = csvText.split('\n');
-                const headers = lines[0].split(',').map(h => h.trim().replace(/"/g, ''));
-                const data = [];
+            parseCSVToStudents(csvText) {
+                const lines = csvText.split('\n').filter(line => line.trim());
+                const students = [];
                 
+                // 첫 번째 줄은 헤더이므로 건너뛰기
                 for (let i = 1; i < lines.length; i++) {
-                    if (lines[i].trim()) {
-                        const values = lines[i].split(',').map(v => v.trim().replace(/"/g, ''));
-                        const row = {};
-                        headers.forEach((header, index) => {
-                            row[header] = values[index] || '';
-                        });
-                        if (row[headers[0]]) { // 첫 번째 컬럼(이름)이 있는 경우만
-                            data.push(row);
-                        }
+                    const values = lines[i].split(',').map(v => v.trim().replace(/"/g, ''));
+                    
+                    if (values.length >= 10 && values[0]) { // 이름이 있고 충분한 컬럼이 있는 경우
+                        const student = {
+                            name: values[0] || '',
+                            phone: values[1] || '',
+                            parentPhone: values[2] || '',
+                            seatType: values[3] || '',
+                            seat: values[4] || '',
+                            joinDate: values[5] || '',
+                            portalRegister: values[6] || '',
+                            school: values[7] || '',
+                            lockerNumber: values[8] || '',
+                            grade: values[9] || '',
+                            planner: values[10] || '',
+                            plannerEdu: values[11] || '',
+                            schedule: values[12] || '',
+                            scheduleApproval: values[13] || '',
+                            changeCount: values[14] || '',
+                            mileage: values[15] || ''
+                        };
+                        students.push(student);
                     }
                 }
                 
-                return data;
+                return students;
             }
             
             updateStatistics() {
                 const total = this.allStudents.length;
-                const plannerCompleted = this.allStudents.filter(s => s['플래너 작성'] === 'o').length;
-                const scheduleSubmitted = this.allStudents.filter(s => s['정기일정 제출'] === 'o').length;
+                const plannerCompleted = this.allStudents.filter(s => s.planner === 'o').length;
+                const scheduleSubmitted = this.allStudents.filter(s => s.schedule === 'o').length;
                 
                 // 이번달 신규 학생 (최근 30일)
                 const thirtyDaysAgo = new Date();
                 thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
                 const newStudents = this.allStudents.filter(s => {
-                    const joinDate = new Date(s['첫 등원']);
+                    if (!s.joinDate) return false;
+                    const joinDate = new Date(s.joinDate.replace(/\//g, '-'));
                     return joinDate >= thirtyDaysAgo;
                 }).length;
                 
@@ -394,42 +407,52 @@ this.allStudents = data.filter(student => {
                     );
                 }
                 
+                if (filteredStudents.length === 0) {
+                    container.innerHTML = '<div class="loading">검색 결과가 없습니다.</div>';
+                    return;
+                }
+                
                 container.innerHTML = filteredStudents.map(student => this.createStudentCard(student)).join('');
             }
             
             applyFilter(students) {
                 switch (this.currentFilter) {
                     case '칸막이':
-                        return students.filter(s => s['좌석 유형'] === '칸막이');
+                        return students.filter(s => s.seatType === '칸막이');
                     case '지정석':
-                        return students.filter(s => s['좌석 유형'].includes('지정석'));
+                        return students.filter(s => s.seatType && s.seatType.includes('지정석'));
                     case 'planner-missing':
-                        return students.filter(s => s['플래너 작성'] === 'x');
+                        return students.filter(s => s.planner === 'x');
                     case 'new':
                         const weekAgo = new Date();
                         weekAgo.setDate(weekAgo.getDate() - 7);
-                        return students.filter(s => new Date(s['첫 등원']) >= weekAgo);
+                        return students.filter(s => {
+                            if (!s.joinDate) return false;
+                            const joinDate = new Date(s.joinDate.replace(/\//g, '-'));
+                            return joinDate >= weekAgo;
+                        });
                     default:
                         return students;
                 }
             }
             
             createStudentCard(student) {
-                const plannerStatus = student['플래너 작성'] === 'o';
-                const scheduleStatus = student['정기일정 제출'] === 'o';
+                const plannerStatus = student.planner === 'o';
+                const scheduleStatus = student.schedule === 'o';
                 
                 return `
                     <div class="student-card">
                         <div class="student-header">
-                            <div class="student-name">${Object.values(student)[0] || '이름없음'}</div>
-                            <div class="seat-number">${student['자리/핸드폰자리']}번</div>
+                            <div class="student-name">${student.name}</div>
+                            <div class="seat-number">${student.seat}번</div>
                         </div>
                         
-                        <div class="student-info">🏫 ${student['고등학교']} ${student['학년']}학년</div>
-                        <div class="student-info">📅 등원: ${student['첫 등원']}</div>
-                        <div class="student-info">📞 ${Object.values(student)[1] || ''}</div>
-                        <div class="student-info">👨‍👩‍👧‍👦 ${Object.values(student)[2] || ''}</div>
-                        <div class="student-info">🪑 ${student['좌석 유형']}</div>
+                        <div class="student-info">🏫 ${student.school} ${student.grade}학년</div>
+                        <div class="student-info">📅 등원: ${student.joinDate}</div>
+                        <div class="student-info">📞 ${student.phone}</div>
+                        <div class="student-info">👨‍👩‍👧‍👦 ${student.parentPhone}</div>
+                        <div class="student-info">🪑 ${student.seatType}</div>
+                        ${student.lockerNumber ? `<div class="student-info">🔒 사물함 ${student.lockerNumber}번</div>` : ''}
                         
                         <div class="status-badges">
                             <span class="badge ${plannerStatus ? 'badge-planner-ok' : 'badge-planner-no'}">
@@ -438,14 +461,14 @@ this.allStudents = data.filter(student => {
                             <span class="badge ${scheduleStatus ? 'badge-schedule-ok' : 'badge-schedule-no'}">
                                 일정 ${scheduleStatus ? '제출' : '미제출'}
                             </span>
-                            ${student['상점 마일리지'] ? `<span class="badge" style="background: #fff3cd; color: #856404;">마일리지 ${student['상점 마일리지']}</span>` : ''}
+                            ${student.mileage && student.mileage !== '-' ? `<span class="badge" style="background: #fff3cd; color: #856404;">마일리지 ${student.mileage}</span>` : ''}
                         </div>
                         
                         <div class="action-buttons">
-                            <button class="btn btn-call" onclick="makeCall('${student['학생 전화번호']}')">📞 학생</button>
-                            <button class="btn btn-call" onclick="makeCall('${student['학부모님 전화번호']}')">📞 학부모</button>
-                            <button class="btn btn-message" onclick="sendMessage('${student['학생 전화번호'] || '이름없음'}')">💬 문자</button>
-                            <button class="btn btn-note" onclick="addNote('${student['학생 전화번호'] || '이름없음'}')">📝 메모</button>
+                            <button class="btn btn-call" onclick="makeCall('${student.phone}')">📞 학생</button>
+                            <button class="btn btn-call" onclick="makeCall('${student.parentPhone}')">📞 학부모</button>
+                            <button class="btn btn-message" onclick="sendMessage('${student.name}')">💬 문자</button>
+                            <button class="btn btn-note" onclick="addNote('${student.name}')">📝 메모</button>
                         </div>
                     </div>
                 `;
@@ -459,26 +482,30 @@ this.allStudents = data.filter(student => {
             }
             
             loadSampleData() {
-                // 연동 실패시 샘플 데이터
+                console.log('📋 Google Sheets 연동 실패 - 샘플 데이터 사용');
+                
+                // 실제 Google Sheets 데이터 기반 샘플
                 this.allStudents = [
-                    {
-                        '학생 전화번호': '이가영',
-                        '자리/핸드폰자리': '1',
-                        '좌석 유형': '칸막이',
-                        '고등학교': '해송고',
-                        '학년': '3',
-                        '학생 전화번호': '010-4061-8456',
-                        '학부모님 전화번호': '010-6231-8457',
-                        '첫 등원': '2024/07/22',
-                        '플래너 작성': 'o',
-                        '정기일정 제출': 'o',
-                        '상점 마일리지': '30'
-                    }
+                    { name: '이가영', seat: '1', seatType: '칸막이', school: '해송고', grade: '3', phone: '010-4061-8456', parentPhone: '010-6231-8457', joinDate: '2024/07/22', planner: 'o', schedule: 'o', mileage: '30', lockerNumber: '' },
+                    { name: '김서윤', seat: '2', seatType: '칸막이', school: '해송고', grade: '3', phone: '010-3027-1958', parentPhone: '010-3111-1958', joinDate: '2025/04/21', planner: 'x', schedule: 'o', mileage: '1', lockerNumber: '' },
+                    { name: '이지수', seat: '3', seatType: '칸막이', school: '해송고', grade: '3', phone: '010-3057-0502', parentPhone: '010-6279-1012', joinDate: '2024/11/20', planner: 'o', schedule: 'o', mileage: '67', lockerNumber: '' },
+                    { name: '정기주', seat: '4', seatType: '칸막이', school: '송도고', grade: '3', phone: '010-5922-3059', parentPhone: '010-9359-3007', joinDate: '2025/05/01', planner: 'o', schedule: 'o', mileage: '-', lockerNumber: '' },
+                    { name: '이동윤', seat: '5', seatType: '칸막이', school: '연송고', grade: '3', phone: '010-9484-6034', parentPhone: '010-2725-6034', joinDate: '2025/02/05', planner: 'o', schedule: 'o', mileage: '24', lockerNumber: '' },
+                    { name: '허준서', seat: '6', seatType: '칸막이', school: '연송고', grade: '3', phone: '010-3671-5294', parentPhone: '010-9166-5294', joinDate: '2025/04/07', planner: 'o', schedule: 'o', mileage: '3', lockerNumber: '' },
+                    { name: '최민서', seat: '7', seatType: '칸막이', school: '포스코고', grade: '3', phone: '010-2678-9226', parentPhone: '010-2675-9226', joinDate: '2024/11/15', planner: 'o', schedule: 'o', mileage: '97', lockerNumber: '' },
+                    { name: '신지윤', seat: '8', seatType: '칸막이', school: '포스코고', grade: '3', phone: '010-6325-2797', parentPhone: '010-6275-9131', joinDate: '2024/12/01', planner: 'o', schedule: 'o', mileage: '437', lockerNumber: '' },
+                    { name: '김여울', seat: '9', seatType: '칸막이', school: '인천여고', grade: '2', phone: '010-2041-7056', parentPhone: '010-2323-7055', joinDate: '2025/01/30', planner: 'o', schedule: 'o', mileage: '76', lockerNumber: '' },
+                    { name: '한예원', seat: '10', seatType: '칸막이', school: '인천외고', grade: '3', phone: '010-9276-4282', parentPhone: '010-9755-4282', joinDate: '2025/05/09', planner: 'x', schedule: 'o', mileage: '', lockerNumber: '' },
+                    { name: '정서현', seat: '11', seatType: '칸막이', school: 'N수', grade: 'N', phone: '010-6329-7929', parentPhone: '010-4717-8350', joinDate: '2025/06/04', planner: 'x', schedule: 'o', mileage: '', lockerNumber: '' },
+                    { name: '박승채', seat: '12', seatType: '칸막이', school: '고잔고', grade: '3', phone: '010-4138-9179', parentPhone: '010-6259-8888', joinDate: '2025/05/18', planner: 'x', schedule: 'o', mileage: '26', lockerNumber: '' },
+                    { name: '황연아', seat: '13', seatType: '칸막이', school: '박문여고', grade: '2', phone: '010-5054-1940', parentPhone: '010-5287-1940', joinDate: '2024/11/14', planner: 'x', schedule: 'o', mileage: '', lockerNumber: '' },
+                    { name: '김민성3', seat: '14', seatType: '칸막이', school: '연송고', grade: '3', phone: '010-9321-6476', parentPhone: '010-9448-6476', joinDate: '2024/12/15', planner: 'o', schedule: 'o', mileage: '120', lockerNumber: '' },
+                    { name: '구현', seat: '15', seatType: '칸막이', school: '포스코고', grade: '2', phone: '010-2568-1852', parentPhone: '010-7523-1852', joinDate: '2024/09/21', planner: 'o', schedule: 'x', mileage: '', lockerNumber: '' }
                 ];
                 
                 this.updateStatistics();
                 this.renderStudents();
-                document.getElementById('update-time').textContent = '샘플 데이터';
+                document.getElementById('update-time').textContent = '샘플 데이터 (Google Sheets 연동 실패)';
             }
         }
         
