@@ -316,11 +316,12 @@
                     const csvText = await response.text();
                     const data = this.parseCSV(csvText);
                     
-                    // 8층 학생만 필터링 (좌석 번호 1-60)
-                    this.allStudents = data.filter(student => {
-                        const seat = parseInt(student['자리/핸드폰자리']) || 0;
-                        return seat >= 1 && seat <= 60;
-                    });
+                   // 8층 학생만 필터링 (좌석 번호 1-60)
+this.allStudents = data.filter(student => {
+    const seatNumber = student[Object.keys(student)[3]]; // 4번째 컬럼 (자리번호)
+    const seat = parseInt(seatNumber) || 0;
+    return seat >= 1 && seat <= 60 && student[Object.keys(student)[0]]; // 이름이 있는 경우만
+});
                     
                     this.updateStatistics();
                     this.renderStudents();
@@ -420,14 +421,14 @@
                 return `
                     <div class="student-card">
                         <div class="student-header">
-                            <div class="student-name">${student['학생 전화번호'] || '이름없음'}</div>
+                            <div class="student-name">${Object.values(student)[0] || '이름없음'}</div>
                             <div class="seat-number">${student['자리/핸드폰자리']}번</div>
                         </div>
                         
                         <div class="student-info">🏫 ${student['고등학교']} ${student['학년']}학년</div>
                         <div class="student-info">📅 등원: ${student['첫 등원']}</div>
-                        <div class="student-info">📞 ${student['학생 전화번호']}</div>
-                        <div class="student-info">👨‍👩‍👧‍👦 ${student['학부모님 전화번호']}</div>
+                        <div class="student-info">📞 ${Object.values(student)[1] || ''}</div>
+                        <div class="student-info">👨‍👩‍👧‍👦 ${Object.values(student)[2] || ''}</div>
                         <div class="student-info">🪑 ${student['좌석 유형']}</div>
                         
                         <div class="status-badges">
